@@ -55,9 +55,9 @@ rebuild_xfs_agsize() {
     fsfreeze --unfreeze "$TMP_MNT" 2>/dev/null || true
 
     log "XFS fix: saving root XFS content to tmpfs..."
-    rsync -aHX --numeric-ids "$TMP_MNT/" "$SAVE_DIR/" 2>&1 | tee -a "$LOG_FILE"
+    tar -C "$TMP_MNT" --hard-dereference -cf - . | tar -C "$SAVE_DIR" -xpf -
     if [ "${PIPESTATUS[0]}" -ne 0 ]; then
-        log "XFS fix ERROR: rsync save failed"
+        log "XFS fix ERROR: tar save failed"
         umount "$TMP_MNT" 2>/dev/null || true
         return 1
     fi
@@ -97,13 +97,12 @@ rebuild_xfs_agsize() {
 
     log "XFS fix: restoring root XFS content..."
     mount "${DISK}${ROOT_PART_NUM}" "$TMP_MNT"
-    # Use rsync instead of cp: rsync does not propagate chattr +i to the
-    # destination and does not try to remove existing entries before writing,
-    # avoiding "cannot remove: Operation not permitted" failures that cause
-    # cp to silently skip files (e.g. registry manifest link files).
-    rsync -aHX --numeric-ids "$SAVE_DIR/" "$TMP_MNT/" 2>&1 | tee -a "$LOG_FILE"
+    # Use tar: unlike rsync, tar never calls fallocate() so XFS extents are
+    # written directly without the unwritten/preallocated state that causes
+    # sendfile() to fail mid-transfer in the iri-registry.
+    tar -C "$SAVE_DIR" --hard-dereference -cf - . | tar -C "$TMP_MNT" -xpf -
     if [ "${PIPESTATUS[0]}" -ne 0 ]; then
-        log "XFS fix ERROR: rsync restore failed"
+        log "XFS fix ERROR: tar restore failed"
         return 1
     fi
 
