@@ -55,7 +55,12 @@ rebuild_xfs_agsize() {
     fsfreeze --unfreeze "$TMP_MNT" 2>/dev/null || true
 
     log "XFS fix: saving root XFS content to tmpfs..."
-    cp -aT "$TMP_MNT" "$SAVE_DIR" 2>&1 | tee -a "$LOG_FILE"
+    rsync -aHX --numeric-ids "$TMP_MNT/" "$SAVE_DIR/" 2>&1 | tee -a "$LOG_FILE"
+    if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+        log "XFS fix ERROR: rsync save failed"
+        umount "$TMP_MNT" 2>/dev/null || true
+        return 1
+    fi
     umount "$TMP_MNT"
 
     # Force-unmount sda4 from ALL remaining mounts (installer holds /sysroot).
@@ -92,9 +97,15 @@ rebuild_xfs_agsize() {
 
     log "XFS fix: restoring root XFS content..."
     mount "${DISK}${ROOT_PART_NUM}" "$TMP_MNT"
-    chattr -R -i "$SAVE_DIR" 2>/dev/null || true
-    chattr -R -i "$TMP_MNT" 2>/dev/null || true
-    cp -aT "$SAVE_DIR" "$TMP_MNT" 2>&1 | tee -a "$LOG_FILE" || true
+    # Use rsync instead of cp: rsync does not propagate chattr +i to the
+    # destination and does not try to remove existing entries before writing,
+    # avoiding "cannot remove: Operation not permitted" failures that cause
+    # cp to silently skip files (e.g. registry manifest link files).
+    rsync -aHX --numeric-ids "$SAVE_DIR/" "$TMP_MNT/" 2>&1 | tee -a "$LOG_FILE"
+    if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+        log "XFS fix ERROR: rsync restore failed"
+        return 1
+    fi
 
     if [ ! -d "$TMP_MNT/ostree" ] || [ ! -d "$TMP_MNT/boot" ]; then
         log "XFS fix ERROR: restore incomplete — ostree or boot directory missing"
@@ -363,7 +374,16 @@ log "Successfully wrote ignition to boot partition"
 # meaning it has already sent the "Rebooting" stage update to the
 # assisted-service.  Rebooting before this point causes the service to
 # mark the node as disconnected/error.
-rebuild_xfs_agsize || { log "XFS fix failed — aborting reboot"; exit 1; }
+# Only run the XFS agsize fix on large disks where agcount > 400 is possible.
+# On small VM disks the agcount stays well below 400 and the fix is not needed.
+# On large bare metal disks (200 GB+) it is required to avoid autosave-xfs ENOSPC.
+DISK_GB=$(( $(blockdev --getsize64 /dev/sda 2>/dev/null || echo 0) / 1073741824 ))
+if [ "${DISK_GB}" -gt 200 ]; then
+    log "Disk is ${DISK_GB} GB — running XFS agsize fix"
+    rebuild_xfs_agsize || { log "XFS fix failed — aborting reboot"; exit 1; }
+else
+    log "Disk is ${DISK_GB} GB — skipping XFS agsize fix (not needed for small disks)"
+fi
 
 log "Rebooting node seen — unmasking reboot.target and rebooting"
 systemctl unmask reboot.target
