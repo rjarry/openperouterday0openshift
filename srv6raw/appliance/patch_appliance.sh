@@ -72,8 +72,9 @@ cluster_resources="${ocp_dir}/cache/"*"/cluster-resources"
         else
             digest_only="false"
         fi
-        yq -r '.spec.imageDigestMirrors // .spec.imageTagMirrors // [] | .[] | .source as $src | .mirrors[] | [$src, .] | @tsv' "${yaml_file}" | \
+        yq -N -r '.spec.imageDigestMirrors // .spec.imageTagMirrors // [] | .[] | .source as $src | .mirrors[] | [$src, .] | @tsv' "${yaml_file}" | \
         while IFS=$'\t' read -r source mirror; do
+            [[ -z "${source}" || -z "${mirror}" ]] && continue
             cat <<TOML
 
 [[registry]]
@@ -89,6 +90,8 @@ TOML
     done
 } > "${registries_conf}"
 
+
+set +x
 # The appliance embeds additionalImages into its local registry but the
 # auto-generated IDMS/ITMS only cover OCP release images.  Add a mirror
 # rule so that registry.redhat.io pulls (e.g. toolbox, support-tools)

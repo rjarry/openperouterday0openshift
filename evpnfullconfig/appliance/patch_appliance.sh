@@ -1,11 +1,11 @@
 #!/bin/bash
 # patch_appliance.sh - Patch an existing appliance ISO by embedding
-# OpenPERouter quadlets, configs, registry mirrors, DNS overrides,
+# OpenPERouter rawconfig quadlets, configs, registry mirrors, DNS overrides,
 # and the ignition hack agent into it.
 #
-# This variant compiles openperouter.bu (the single source of truth for
-# file lists and systemd units) and merges the resulting ignition with
-# appliance-specific extras (registry mirrors, DNS, SSH key).
+# This is the rawconfig variant: it compiles openperouter-raw.bu (the single
+# source of truth for file lists and systemd units) and merges the resulting
+# ignition with appliance-specific extras (registry mirrors, DNS, SSH key).
 #
 # Usage: patch_appliance.sh <appliance_iso> <ocp_dir>
 #
@@ -18,7 +18,7 @@ set -euo pipefail
 
 SCRIPTDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EXTRASDIR="$(cd "${SCRIPTDIR}/../extras" && pwd)"
-RAWCONFIG_BU="${SCRIPTDIR}/../configimage/openperouter.bu"
+RAWCONFIG_BU="${SCRIPTDIR}/../configimage/openperouter-raw.bu"
 
 appliance_iso="$1"
 ocp_dir="$2"
@@ -29,14 +29,14 @@ if [[ ! -f "${appliance_iso}" ]]; then
 fi
 
 if [[ ! -f "${RAWCONFIG_BU}" ]]; then
-    echo "ERROR: openperouter.bu not found: ${RAWCONFIG_BU}"
+    echo "ERROR: openperouter-raw.bu not found: ${RAWCONFIG_BU}"
     exit 1
 fi
 
 # ============================================================
-# Step 1: Compile openperouter.bu → ignition
+# Step 1: Compile openperouter-raw.bu → ignition
 # ============================================================
-echo "==> Compiling openperouter.bu..."
+echo "==> Compiling openperouter-raw.bu..."
 
 tmpdir=$(mktemp -d)
 trap 'rm -rf "${tmpdir}"' EXIT
@@ -72,8 +72,9 @@ cluster_resources="${ocp_dir}/cache/"*"/cluster-resources"
         else
             digest_only="false"
         fi
-        yq -r '.spec.imageDigestMirrors // .spec.imageTagMirrors // [] | .[] | .source as $src | .mirrors[] | [$src, .] | @tsv' "${yaml_file}" | \
+        yq -N -r '.spec.imageDigestMirrors // .spec.imageTagMirrors // [] | .[] | .source as $src | .mirrors[] | [$src, .] | @tsv' "${yaml_file}" | \
         while IFS=$'\t' read -r source mirror; do
+            [[ -z "${source}" || -z "${mirror}" ]] && continue
             cat <<TOML
 
 [[registry]]
@@ -89,6 +90,8 @@ TOML
     done
 } > "${registries_conf}"
 
+
+set +x
 # The appliance embeds additionalImages into its local registry but the
 # auto-generated IDMS/ITMS only cover OCP release images.  Add a mirror
 # rule so that registry.redhat.io pulls (e.g. toolbox, support-tools)
