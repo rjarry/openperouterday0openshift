@@ -381,7 +381,7 @@ WantedBy=multi-user.target
 echo "Merging script and systemd unit into ignition..."
 jq --arg script_b64 "$SCRIPT_B64" --arg unit "$SYSTEMD_UNIT" '
     .storage = (.storage // {}) |
-    .storage.files = ((.storage.files // []) + [{
+    .storage.files = ([(.storage.files // [])[] | select(.path != "/usr/local/bin/ignition-hack.sh")] + [{
         "group": {},
         "overwrite": true,
         "path": "/usr/local/bin/ignition-hack.sh",
@@ -395,7 +395,7 @@ jq --arg script_b64 "$SCRIPT_B64" --arg unit "$SYSTEMD_UNIT" '
         }
     }]) |
     .systemd = (.systemd // {}) |
-    .systemd.units = ((.systemd.units // []) + [{
+    .systemd.units = ([(.systemd.units // [])[] | select(.name != "ignition-hack.service")] + [{
         "name": "ignition-hack.service",
         "enabled": true,
         "contents": $unit
