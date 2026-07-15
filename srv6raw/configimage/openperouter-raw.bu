@@ -4,6 +4,10 @@ metadata:
   name: 99-master-openperouter
   labels:
     machineconfiguration.openshift.io/role: master
+openshift:
+  kernel_arguments:
+    - console=tty0
+    - console=ttyS0,115200n8
 storage:
   files:
     # --- Rawconfig scripts (mode 0755) ---
@@ -32,6 +36,21 @@ storage:
       overwrite: true
       contents:
         local: rawconfig/bridge-refresher.sh
+    - path: /usr/local/bin/grout-bind.sh
+      mode: 0755
+      overwrite: true
+      contents:
+        local: rawconfig/grout-bind.sh
+    - path: /usr/local/bin/grout-unbind.sh
+      mode: 0755
+      overwrite: true
+      contents:
+        local: rawconfig/grout-unbind.sh
+    - path: /etc/systemd/system/grout-bind@.service
+      mode: 0644
+      overwrite: true
+      contents:
+        local: rawconfig/grout-bind@.service
     - path: /usr/local/bin/can_start.sh
       mode: 0755
       overwrite: true
@@ -42,12 +61,6 @@ storage:
       overwrite: true
       contents:
         local: quadlets/can_start.sh
-    # --- Empty openpe_config.yaml (controller needs it to exist) ---
-    - path: /var/lib/openperouter/configs/openpe_config.yaml
-      mode: 0644
-      overwrite: true
-      contents:
-        inline: ""
     # --- Rawconfig templates and env (mode 0644) ---
     - path: /etc/openperouter/templates/openpe_evpn.yaml.template
       mode: 0644
@@ -59,11 +72,25 @@ storage:
       overwrite: true
       contents:
         local: rawconfig/openpe_evpn.yaml_rr.template
-    - path: /etc/openperouter/vpn-setup.env
+    - path: /etc/openperouter/vpn-setup.env.defaults
       mode: 0644
       overwrite: true
       contents:
-        local: rawconfig/vpn-setup.env
+        local: rawconfig/vpn-setup.env.defaults
+    - path: /usr/local/bin/generate-vpn-env.sh
+      mode: 0755
+      overwrite: true
+      contents:
+        local: common/generate-vpn-env.sh
+    - path: /etc/openperouter/grout.env
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          GROUT_SOCK_PATH=/run/grout/api.sock
+          GROUT_CPUS=4
+          GROUT_HUGEPAGES_1G=8Gi
+          GROUT_SOCKET_LIMIT=8192
     # --- FRR daemons file (enables isisd for ISIS + SRv6) ---
     - path: /etc/perouter/daemons
       mode: 0644
@@ -82,6 +109,22 @@ storage:
       overwrite: true
       contents:
         local: common/patch-installer-config.sh
+    # --- DaemonSet manifests (applied after kubelet is ready) ---
+    - path: /var/lib/openperouter/manifests/namespace.yaml
+      mode: 0644
+      overwrite: true
+      contents:
+        local: manifests/namespace.yaml
+    - path: /var/lib/openperouter/manifests/grout-daemonset.yaml
+      mode: 0644
+      overwrite: true
+      contents:
+        local: manifests/grout-daemonset.yaml
+    - path: /usr/local/bin/apply-manifests.sh
+      mode: 0755
+      overwrite: true
+      contents:
+        local: common/apply-manifests.sh
     # --- Quadlet files ---
     - path: /etc/containers/systemd/controllerpod.pod
       mode: 0644
@@ -108,11 +151,11 @@ storage:
       overwrite: true
       contents:
         local: quadlets/reloader.container
-    - path: /etc/containers/systemd/frr-sockets.volume
+    - path: /etc/containers/systemd/grout.container
       mode: 0644
       overwrite: true
       contents:
-        local: quadlets/frr-sockets.volume
+        local: quadlets/grout.container
 systemd:
   units:
     # --- Quadlet services ---
@@ -126,17 +169,47 @@ systemd:
       enabled: true
     - name: reloader.service
       enabled: true
-    - name: frr-sockets.service
+    - name: grout.service
       enabled: true
     # --- Rawconfig systemd services ---
+    - name: grout.slice
+      enabled: true
+      contents: |
+        [Slice]
+        AllowedCPUs=0,1,20,21
+        [Install]
+        WantedBy=default.target
+    - name: grout-bind@eno12399v0.service
+      enabled: true
+    - name: grout-bind@eno12399v1.service
+      enabled: true
+    - name: generate-vpn-env.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Generate OpenPERouter VPN environment file
+        After=network-online.target
+        Wants=network-online.target
+        Before=setup-underlay.service
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/usr/local/bin/generate-vpn-env.sh
+        StandardOutput=journal
+        StandardError=journal
+        SyslogIdentifier=generate-vpn-env
+
+        [Install]
+        WantedBy=multi-user.target
     - name: setup-underlay.service
       enabled: true
       contents: |
         [Unit]
         Description=OpenPERouter Underlay Setup
         Documentation=https://github.com/openperouter/openperouter
-        After=network-online.target routerpod-pod.service frr.service
-        Requires=routerpod-pod.service
+        After=network-online.target generate-vpn-env.service routerpod-pod.service grout.service frr.service
+        Requires=routerpod-pod.service generate-vpn-env.service
         Wants=network-online.target
 
         [Service]
@@ -243,6 +316,38 @@ systemd:
         Type=oneshot
         ExecStart=/usr/local/bin/openperouter-node-index.sh
         RemainAfterExit=yes
+
+        [Install]
+        WantedBy=multi-user.target
+    # --- Watch for kubeconfig and trigger manifest apply ---
+    - name: apply-manifests.path
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Watch for hostbridge kubeconfig
+
+        [Path]
+        PathExists=/etc/kubernetes/static-pod-resources/kube-apiserver-certs/secrets/node-kubeconfigs/localhost.kubeconfig
+
+        [Install]
+        WantedBy=multi-user.target
+    # --- Apply DaemonSet manifests after kubelet is ready ---
+    - name: apply-manifests.service
+      contents: |
+        [Unit]
+        Description=Apply OpenPERouter DaemonSet manifests
+        After=kubelet.service setup-underlay.service
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        EnvironmentFile=-/etc/openperouter/vpn-setup.env
+        ExecStart=/usr/local/bin/apply-manifests.sh
+        StandardOutput=journal
+        StandardError=journal
+        SyslogIdentifier=apply-manifests
+        TimeoutStartSec=600
+        TimeoutStopSec=10
 
         [Install]
         WantedBy=multi-user.target

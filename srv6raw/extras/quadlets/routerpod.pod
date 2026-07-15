@@ -1,4 +1,5 @@
 # routerpod.pod
+# ex: ft=systemd
 # OpenPERouter FRR Router Pod
 #
 # This pod contains the FRR routing daemon and configuration reloader containers.
@@ -7,12 +8,17 @@
 [Unit]
 Description=OpenPERouter FRR Router Pod
 Documentation=https://github.com/openperouter
-Wants=network-online.target
-After=network-online.target
 
 [Pod]
 # Pod name - will create Podman pod named "systemd-routerpod"
 PodName=routerpod
+
+# Use named netns created previously
+Network=ns:/run/netns/perouter
+
+# Mount host folders to cross-pod sharing of grout and frr sockets
+Volume=/run/grout:/run/grout
+Volume=/run/frr:/run/frr
 
 # PID namespace sharing - required for FRR process management
 # The reloader needs to see FRR processes to signal configuration reloads
@@ -21,6 +27,15 @@ PodName=routerpod
 PodmanArgs=--share=+pid
 
 [Service]
+# Make sure all host folders exist and have proper selinux context to allow sharing
+ExecStartPre=/usr/bin/mkdir -p -m 775 /run/grout /run/frr
+ExecStartPre=/usr/bin/chcon -t container_file_t /run/grout /run/frr
+ExecStartPre=/usr/bin/mkdir -p /run/netns
+ExecStartPre=-/usr/sbin/ip netns add perouter
+ExecStartPre=/usr/sbin/ip -n perouter link set lo up
+ExecStartPre=/usr/sbin/ip netns exec perouter sysctl -qw net.ipv4.conf.all.rp_filter=0
+ExecStartPre=/usr/sbin/ip netns exec perouter sysctl -qw net.ipv4.conf.default.rp_filter=0
+ExecStopPost=-/usr/sbin/ip netns del perouter
 # Restart policy - restart pod if it fails
 Restart=on-failure
 

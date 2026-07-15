@@ -31,14 +31,13 @@ Environment=TINI_SUBREAPER=true
 
 # Volume mounts
 # Named volume for FRR sockets - shared with reloader container
-# :Z = Private SELinux label (unique to this container/pod)
-Volume=frr-sockets.volume:/var/run/frr:Z
+Volume=/etc/perouter/frr/frr.conf:/etc/frr/frr.conf:Z
 
 # Custom daemons file (enables isisd, staticd, bfdd alongside bgpd/zebra)
 Volume=/etc/perouter/daemons:/etc/frr/daemons:Z
 
 # Additional Podman arguments not yet supported by native quadlet directives
-# --pidfile - Create PID file for controller integration
+PodmanArgs=--env-file=/etc/openperouter/grout.env
 PodmanArgs=--pidfile=/etc/perouter/frr/frr.pid
 
 # Override container entrypoint
@@ -46,7 +45,13 @@ Entrypoint=/bin/bash
 
 # Container startup command
 # Changes permissions on /var/run/frr for socket access, then starts FRR via tini.
-Exec=-c "chmod -R a+rw /var/run/frr && exec /sbin/tini -- /usr/lib/frr/docker-start"
+Exec=-c "chown frr:frr /run/frr && exec /sbin/tini -- /usr/lib/frr/docker-start"
+
+HealthCmd=vtysh -c "show zebra dplane providers" | grep -q zebra_dplane_grout
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthOnFailure=none
 
 [Service]
 # Restart policy - restart container if it fails
@@ -57,6 +62,7 @@ TimeoutStopSec=70
 
 # Pre-start commands - create required host directories if they don't exist
 ExecStartPre=/usr/bin/mkdir -p /etc/perouter/frr
+ExecStartPre=/usr/bin/touch /etc/perouter/frr/frr.conf
 
 [Install]
 # Automatically enable this container at boot

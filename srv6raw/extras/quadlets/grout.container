@@ -1,0 +1,37 @@
+[Unit]
+Description=Grout DPDK Dataplane
+After=dev-hugepages.mount nmstate.service
+Requires=dev-hugepages.mount
+Wants=nmstate.service
+ConditionPathExists=/dev/hugepages
+
+[Container]
+Image=quay.io/redhat-user-workloads/telco-5g-tenant/openperouter-operator-edge-4-22:latest
+ContainerName=grout
+Pod=routerpod.pod
+Notify=true
+Environment=NOTIFY_SOCKET
+Environment=GROUT_OVERRIDE_DEFAULT_ROUTE=true
+PodmanArgs=--privileged
+PodmanArgs=--env-file=/etc/openperouter/grout.env
+Entrypoint=/usr/bin/grout
+Exec=-o root:frr -M unix:/run/grout/metrics.sock -- --socket-limit $GROUT_SOCKET_LIMIT
+Volume=/dev/hugepages:/dev/hugepages
+Volume=/dev/vfio:/dev/vfio
+Volume=/sys/bus/pci:/sys/bus/pci
+AddDevice=/dev/net/tun
+AddDevice=/dev/infiniband
+HealthCmd=grcli -e </dev/null
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthOnFailure=none
+
+[Service]
+Slice=grout.slice
+EnvironmentFile=/etc/openperouter/grout.env
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

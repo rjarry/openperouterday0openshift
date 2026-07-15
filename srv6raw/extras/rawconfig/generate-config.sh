@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# generate-config.sh - Generate OpenPERouter FRR configuration (ISIS + SRv6)
+# generate-config.sh - Generate OpenPERouter FRR configuration (flat / ISIS routing)
 #
 # This script:
 # 1. Loads variables from setup-underlay.sh
@@ -40,6 +40,7 @@ L2_VNI="${L2_VNI:-210}"
 L2_GATEWAY_IP="${L2_GATEWAY_IP:-192.168.110.1/24}"
 L2_GATEWAY_IP_V6="${L2_GATEWAY_IP_V6:-fd00:110::1/64}"
 
+UNDERLAY_NIC="${UNDERLAY_NIC:-eno12399v0}"
 
 # Paths
 VARS_FILE="${VARS_FILE:-/var/lib/openperouter/vpn-setup.vars}"
@@ -114,9 +115,9 @@ log_step "Rendering configuration from template"
 mkdir -p "$(dirname "$CONFIG_OUTPUT")"
 
 # Export all variables for envsubst
-export NODE_NAME UNDERLAY_NIC BGP_AS ROUTER_ID LOOPBACK_V6
+export NODE_NAME UNDERLAY_NIC BGP_AS ROUTER_ID LOOPBACK_V6 UNDERLAY_V6
 export SRV6_SOURCE SRV6_PREFIX SRV6_NODE_ID ISIS_NET
-export VRF_NAME BR0_IP BR0_IP_V6 BR0_SUBNET BR0_SUBNET_V6 L2_GATEWAY_IP L2_GATEWAY_IP_V6 L2_VNI
+export VRF_NAME HOST_SUBNET HOST_SUBNET_V6 L2_GATEWAY_IP L2_GATEWAY_IP_V6 L2_VNI
 
 envsubst < "$CONFIG_TEMPLATE" > "$CONFIG_OUTPUT" || {
     error "Failed to render configuration template"

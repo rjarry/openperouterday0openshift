@@ -91,7 +91,8 @@ TimeoutStopSec=70
 # These commands run before the container starts
 ExecStartPre=/usr/bin/mkdir -p /etc/perouter/frr
 ExecStartPre=/usr/bin/mkdir -p /var/lib/hostbridge
-ExecStartPre=/usr/bin/mkdir -p /var/lib/openperouter
+ExecStartPre=/usr/bin/mkdir -p /var/lib/openperouter/configs
+ExecStartPre=/usr/bin/touch /var/lib/openperouter/configs/openpe_evpn.yaml
 ExecStartPre=/usr/bin/mkdir -p /var/run/openvswitch
 
 # If a can_start.sh script is mounted, run it and wait for success.

@@ -1,0 +1,16 @@
+[Unit]
+Description=Bind netdev %i for grout usage
+Before=grout.service
+PartOf=grout.service
+Requires=routerpod-pod.service nmstate.service network-online.target
+Wants=routerpod-pod.service nmstate.service network-online.target
+After=routerpod-pod.service nmstate.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/grout-bind.sh %i perouter
+ExecStop=/usr/local/bin/grout-unbind.sh %i perouter
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: grout-reservation
+  namespace: openperouter-system
+  labels:
+    app: openperouter
+    component: grout
+spec:
+  selector:
+    matchLabels:
+      app: openperouter
+      component: grout
+  template:
+    metadata:
+      labels:
+        app: openperouter
+        component: grout
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9111"
+    spec:
+      # Never evict this pod — grout depends on the CPU reservation.
+      priorityClassName: system-node-critical
+      nodeSelector:
+        openperouter.io/role: router
+      tolerations:
+      - operator: Exists
+      hostPID: true
+      terminationGracePeriodSeconds: 30
+      containers:
+      # Reserve exclusive isolated CPUs and hugepages for grout. Repin
+      # grout's threads at startup, then sleep forever holding the
+      # reservation. Integer CPU request ensures the CPU manager assigns
+      # exclusive cores from the isolated pool.
+      - name: reservation
+        image: quay.io/redhat-user-workloads/telco-5g-tenant/openperouter-operator-edge-5-0:latest
+        securityContext:
+          privileged: true
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -euo pipefail
+          set -a
+          source /etc/openperouter/grout.env
+          set +a
+
+          echo "Waiting for grout..."
+          until grcli -e </dev/null >/dev/null 2>&1; do
+              sleep 1
+          done
+          echo "Grout is ready"
+
+          # Read the exclusive CPUs assigned to this container by kubelet.
+          # In a privileged container, /sys/fs/cgroup/cpuset.cpus.effective
+          # reflects the parent cgroup (all host CPUs). Read from the
+          # container's own cgroup path to get the guaranteed CPUs.
+          CGROUP=$(cat /proc/self/cgroup | cut -d: -f3)
+          DATAPATH=$(cat /sys/fs/cgroup"$CGROUP"/cpuset.cpus)
+
+          # Read control CPUs from PID 1's affinity (set by systemd.cpu_affinity).
+          CONTROL=$(cat /etc/openperouter/system-cpus)
+
+          # Expand grout.slice to include both reserved and pod-guaranteed CPUs.
+          echo "Updating grout.slice: AllowedCPUs=$CONTROL,$DATAPATH"
+          nsenter -t 1 -m -u -p -- \
+              systemctl --runtime set-property grout.slice AllowedCPUs="$CONTROL,$DATAPATH"
+
+          # Force destroy and recreate datapath threads. The performance
+          # profile may have repinned them and grout will not recreate
+          # existing threads.
+          echo "Repinning grout: datapath=$DATAPATH control=$CONTROL"
+          grcli affinity cpus set control 0 datapath 1
+          grcli affinity cpus set control "$CONTROL" datapath "$DATAPATH"
+
+          echo "Reservation active"
+          exec sleep infinity
+        resources:
+          requests:
+            cpu: "__GROUT_CPUS__"
+            hugepages-1Gi: "__GROUT_HUGEPAGES_1G__"
+            memory: "64Mi"
+          limits:
+            cpu: "__GROUT_CPUS__"
+            hugepages-1Gi: "__GROUT_HUGEPAGES_1G__"
+            memory: "64Mi"
+        volumeMounts:
+        - name: grout-sock
+          mountPath: /run/grout
+        - name: openperouter-config
+          mountPath: /etc/openperouter
+          readOnly: true
+        - name: perouter-config
+          mountPath: /etc/perouter
+      # Proxy grout metrics from unix socket to TCP for Prometheus.
+      # Fractional CPU request keeps this on shared/system CPUs.
+      - name: metrics
+        image: docker.io/alpine/socat:latest
+        args: ["TCP-LISTEN:9111,fork,reuseaddr", "UNIX-CONNECT:/run/grout/metrics.sock"]
+        ports:
+        - name: metrics
+          containerPort: 9111
+          protocol: TCP
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "64Mi"
+          limits:
+            cpu: "100m"
+            memory: "64Mi"
+        volumeMounts:
+        - name: grout-sock
+          mountPath: /run/grout
+      volumes:
+      - name: grout-sock
+        hostPath:
+          path: /run/grout
+          type: DirectoryOrCreate
+      - name: openperouter-config
+        hostPath:
+          path: /etc/openperouter
+      - name: perouter-config
+        hostPath:
+          path: /etc/perouter
+          type: DirectoryOrCreate

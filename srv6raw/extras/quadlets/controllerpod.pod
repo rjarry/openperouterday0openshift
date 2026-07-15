@@ -3,6 +3,7 @@
 #
 # This pod contains the OpenPERouter controller that manages configuration,
 # network namespaces, and Kubernetes integration.
+# ex: ft=systemd
 
 [Unit]
 Description=OpenPERouter Controller Pod

@@ -8,7 +8,7 @@
 # Variables:
 #   ${NODE_NAME}, ${UNDERLAY_NIC}, ${BGP_AS}, ${ROUTER_ID}
 #   ${LOOPBACK_V6}, ${SRV6_SOURCE}, ${SRV6_PREFIX}, ${ISIS_NET}
-#   ${VRF_NAME}, ${BR0_IP}, ${BR0_IP_V6}, ${BR0_SUBNET}, ${BR0_SUBNET_V6}
+#   ${VRF_NAME}, ${HOST_SUBNET}, ${HOST_SUBNET_V6}
 #   ${TOR_LOOPBACK}
 #   ${EVPN_LISTEN_RANGE}     - IPv6 prefix for dynamic EVPN client peers
 #   ${SRV6_NODE_ID}   - non-zero node-ID for the uSID locator (0x0000 is End-of-Container)
@@ -16,20 +16,26 @@
 rawfrrconfigs:
   - priority: 100
     rawConfig: |
-      frr version 10.5
+      frr version 10.6
       frr defaults traditional
       hostname ${NODE_NAME}
-      log file /etc/frr/frr.log informational
+      log stdout debug
+      debug zebra dplane dpdk
       !
       interface ${UNDERLAY_NIC}
+       ip address ${ROUTER_ID}/32
+       ipv6 address ${UNDERLAY_V6}/128
+       ipv6 address ${LOOPBACK_V6}/128
+       ipv6 address ${SRV6_SOURCE}/128
        ip router isis PE
        ipv6 router isis PE
+       isis network point-to-point
+       isis circuit-type level-1
       exit
       !
-      interface lo
-       ip router isis PE
-       ipv6 router isis PE
-      exit
+      vrf ${VRF_NAME}
+       vni ${L2_VNI}
+      exit-vrf
       !
       router bgp ${BGP_AS}
        bgp router-id ${ROUTER_ID}
@@ -77,7 +83,7 @@ rawfrrconfigs:
        sid vpn per-vrf export auto
        !
        address-family ipv4 unicast
-        network ${BR0_SUBNET}
+        network ${HOST_SUBNET}
         rd vpn export ${ROUTER_ID}:2
         rt vpn both ${BGP_AS}:2
         export vpn
@@ -85,7 +91,7 @@ rawfrrconfigs:
        exit-address-family
        !
        address-family ipv6 unicast
-        network ${BR0_SUBNET_V6}
+        network ${HOST_SUBNET_V6}
         rd vpn export ${ROUTER_ID}:2
         rt vpn both ${BGP_AS}:2
         export vpn

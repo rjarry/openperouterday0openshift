@@ -17,3 +17,6 @@ pbrd=no
 fabricd=no
 vrrpd=no
 pathd=no
+
+frr_global_options="-A 127.0.0.1 --log stdout"
+zebra_options="-s 90000000 -M dplane_grout"

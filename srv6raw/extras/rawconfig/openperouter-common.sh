@@ -64,7 +64,7 @@ inns() {
         echo "Error: frr container is not running" >&2
         return 1
     fi
-    nsenter -t "$pid" -n "$@"
+    nsenter -t "$pid" -n -m "$@"
 }
 
 # isfrr_ready checks that the frr container is running and bgpd is active.

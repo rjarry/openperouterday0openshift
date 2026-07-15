@@ -1,0 +1,25 @@
+apiVersion: performance.openshift.io/v2
+kind: PerformanceProfile
+metadata:
+  name: grout-performance
+spec:
+  cpu:
+    reserved: "0,1,20,21"
+    isolated: "2-19,22-39"
+  hugepages:
+    defaultHugepagesSize: 1G
+    pages:
+    - count: 32
+      size: 1G
+      node: 0
+  numa:
+    topologyPolicy: single-numa-node
+  workloadHints:
+    highPowerConsumption: false
+    realTime: true
+    perPodPowerManagement: false
+  additionalKernelArgs:
+    - iommu=pt
+    - intel_iommu=on
+  nodeSelector:
+    node-role.kubernetes.io/master: ""
