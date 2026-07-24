@@ -119,7 +119,7 @@ rawfrrconfigs:
         exit
         locators
          locator MAIN
-          prefix ${SRV6_PREFIX}:${SRV6_NODE_ID}::/48 block-len 32 node-len 16 func-bits 16
+          prefix ${SRV6_PREFIX}::/48 block-len 32 node-len 16 func-bits 16
           behavior usid
          exit
         exit
