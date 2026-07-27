@@ -308,32 +308,28 @@ log "Injected registry mirror configuration"
 # policy.json is managed by the MCO via the rendered machineconfig — do NOT
 # inject it here or MCO will report a content mismatch and fail to converge.
 
-# Wait for the installer to finish disk operations before writing ignition.
-# Non-bootstrap nodes see "Rebooting node" in the journal quickly.
-# The bootstrap node's assisted-installer waits for bootstrap-complete before
-# logging "Rebooting node", which can take over an hour. We cannot wait that
-# long — the 2-node etcd cluster degrades while the 3rd member is stuck on
-# the live ISO. Use a timeout so the bootstrap node reboots promptly after
-# its own disk write is done.
-IS_BOOTSTRAP=0
+# Detect whether this is the bootstrap/rendezvous node by checking if the
+# assisted-service container is running locally.  The bootstrap node must stay
+# up until waitForBootstrapComplete; the other nodes only need to wait until
+# their own disk operations are done.
 if sudo podman ps --format '{{.Names}}' 2>/dev/null | grep -q '^service$'; then
-    IS_BOOTSTRAP=1
-    log "Bootstrap node detected"
+    log "Bootstrap node detected — waiting for assisted-installer to exit (implies bootstrap complete)"
+    while sudo podman ps --format '{{.Names}}' 2>/dev/null | grep -q '^assisted-installer$'; do
+        log "assisted-installer still running, retrying in 5 seconds..."
+        sleep 5
+    done
+    log "assisted-installer exited, proceeding to write ignition"
+else
+    # Non-bootstrap node: wait for "Rebooting node" in the journal.
+    # The local assisted-installer logs this just before calling shutdown -r,
+    # after all disk operations (image write + ostree deployment) are complete.
+    # Exclude ignition-hack lines to prevent matching our own log messages.
+    log "Waiting for installer reboot signal..."
+    while ! journalctl -b --no-pager -q 2>/dev/null | grep -v 'ignition-hack' | grep -q 'Rebooting node'; do
+        sleep 5
+    done
+    log "Rebooting node seen, proceeding to fetch MCS ignition and write"
 fi
-
-log "Waiting for installer reboot signal..."
-WAIT_START=$(date +%s)
-MAX_WAIT=300
-while ! journalctl -b --no-pager -q 2>/dev/null | grep -v 'ignition-hack' | grep -q 'Rebooting node'; do
-    if [ $IS_BOOTSTRAP -eq 1 ]; then
-        ELAPSED=$(( $(date +%s) - WAIT_START ))
-        if [ $ELAPSED -ge $MAX_WAIT ]; then
-            log "Bootstrap node: timeout after ${MAX_WAIT}s waiting for reboot signal, proceeding"
-            break
-        fi
-    fi
-    sleep 5
-done
 
 # Validate ignition before writing
 if ! jq -e '.ignition.version' "$IGN_FILE" >/dev/null 2>&1; then
