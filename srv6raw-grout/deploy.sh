@@ -96,15 +96,20 @@ fi
 config_iso="${config_image_dir}/agentconfig.noarch.iso"
 
 # ============================================================
-# Step 5: Update nginx symlinks
+# Step 5: Export ISOs via NFS
 # ============================================================
-echo "==> Updating nginx symlinks..."
+NFS_DIR="/srv/nfs/iso"
+echo "==> Exporting ISOs via NFS..."
 
-ln -sf "$(realpath "${appliance_iso}")" /usr/share/nginx/html/appliance.iso
-ln -sf "$(realpath "${config_iso}")" /usr/share/nginx/html/config.iso
-chcon -t httpd_sys_content_t /usr/share/nginx/html/*.iso || true
+mkdir -p "${NFS_DIR}"
+ln -f "$(realpath "${appliance_iso}")" "${NFS_DIR}/appliance.iso"
+ln -f "$(realpath "${config_iso}")" "${NFS_DIR}/config.iso"
+chcon -t public_content_ro_t -l s0 "${NFS_DIR}"/*.iso
 
-systemctl reload nginx 2>/dev/null || true
+if ! grep -q "${NFS_DIR}" /etc/exports 2>/dev/null; then
+	echo "${NFS_DIR} *(ro,no_root_squash)" >> /etc/exports
+fi
+exportfs -ra
 
 # ============================================================
 # Step 6: Boot all servers via iDRAC
@@ -112,8 +117,8 @@ systemctl reload nginx 2>/dev/null || true
 for idrac_host in "${idrac_hosts[@]}"; do
 	echo "==> Booting ${idrac_host} from virtual media..."
 	"${SCRIPTDIR}/../idrac-boot.sh" "${idrac_host}" \
-		"http://${BASTION}/appliance.iso" \
-		"http://${BASTION}/config.iso"
+		"${BASTION}:${NFS_DIR}/appliance.iso" \
+		"${BASTION}:${NFS_DIR}/config.iso"
 done
 
 # ============================================================

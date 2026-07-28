@@ -4,13 +4,10 @@ set -euo pipefail
 # idrac-boot.sh - Boot a Dell server from virtual media ISOs via iDRAC
 # Redfish API.
 #
-# Usage: idrac-boot.sh <idrac_host> <url> [url...]
+# Usage: idrac-boot.sh <idrac_host> <image> [image...]
 #
 #   idrac_host   iDRAC hostname or IP
-#   url          HTTP URL(s) of ISO images to mount as virtual media
-#
-# The ISOs must be served over HTTP/1.1 (e.g. nginx). iDRAC does not
-# support HTTP/1.0 (python http.server) or local file paths.
+#   image        ISO image location (HTTP URL or NFS path host:/path/file.iso)
 #
 # Environment:
 #   IDRAC_USER   iDRAC username (default: root)

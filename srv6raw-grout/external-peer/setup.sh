@@ -120,7 +120,9 @@ if [[ -n "$PUBLIC_NM_CON" ]]; then
 fi
 
 firewall-cmd --zone=external --add-masquerade --permanent
-firewall-cmd --zone=external --add-service=http --permanent
+firewall-cmd --zone=external --add-service=nfs --permanent
+firewall-cmd --zone=external --add-service=mountd --permanent
+firewall-cmd --zone=external --add-service=rpc-bind --permanent
 firewall-cmd --zone=trusted --add-source="$PRIVATE_NET" --permanent
 firewall-cmd --zone=trusted --add-source="$PRIVATE_NET_V6" --permanent
 firewall-cmd --zone=trusted --add-source=10.0.0.0/24 --permanent
@@ -128,7 +130,6 @@ firewall-cmd --zone=trusted --add-source=10.100.0.0/24 --permanent
 firewall-cmd --zone=trusted --add-source=10.200.0.0/30 --permanent
 firewall-cmd --permanent --direct --add-rule ipv6 nat POSTROUTING 0 \
 	-s "$PRIVATE_NET_V6" -o "$PUBLIC_NIC" -j MASQUERADE 2>/dev/null || true
-firewall-cmd --add-service=http --permanent
 firewall-cmd --reload
 
 # --- Containerized FRR (in perouter netns) ---
@@ -200,11 +201,18 @@ CHRONY
 
 chronyd -f /etc/chrony-sno.conf -x
 
-# --- nginx (serve ISOs) ---
+# --- NFS (serve ISOs to iDRAC virtual media) ---
 
-dnf install -y nginx
-systemctl enable nginx
-systemctl start nginx
+dnf install -y nfs-utils
+mkdir -p /srv/nfs/iso
+semanage fcontext -a -t public_content_ro_t '/srv/nfs/iso(/.*)?' 2>/dev/null || true
+restorecon -Rv /srv/nfs/iso
+setsebool -P nfs_export_all_ro on
+if ! grep -q '/srv/nfs/iso' /etc/exports 2>/dev/null; then
+	echo '/srv/nfs/iso *(ro,no_root_squash)' >> /etc/exports
+fi
+systemctl enable --now nfs-server
+exportfs -ra
 
 echo ""
 echo "==> Bastion setup complete (ISIS + SRv6 L3VPN)"
