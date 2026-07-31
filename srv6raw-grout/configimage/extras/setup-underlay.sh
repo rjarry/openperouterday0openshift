@@ -41,7 +41,7 @@ for state in "$STATE_DIR"/*; do
 
 	port="underlay$n"
 	echo "  $port: pci=$pci_addr type=$type driver=$driver pf_mtu=$pf_mtu"
-	grcli interface add port "$port" devargs "$pci_addr" mtu "$pf_mtu"
+	grcli interface add port "$port" devargs "$pci_addr" down mtu "$pf_mtu"
 
 	n=$((n + 1))
 done

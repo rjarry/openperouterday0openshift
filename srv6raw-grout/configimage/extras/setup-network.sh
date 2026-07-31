@@ -43,5 +43,4 @@ if [ -n "${L2_GATEWAY_IP_V6}" ]; then
 fi
 
 # Force GARP to be sent.
-grcli interface set port underlay0 down
 grcli interface set port underlay0 up

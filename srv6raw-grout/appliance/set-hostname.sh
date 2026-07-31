@@ -12,11 +12,18 @@ EOF
 echo "Waiting for network to determine if this is the rendezvous host." > /etc/motd.d/60-rendezvous-host
 
 HOSTNAMES_PATH=/etc/assisted/hostnames
+MAX_WAIT=120
+WAIT_COUNT=0
 
-if [ ! -d "${HOSTNAMES_PATH}" ]; then
-    echo "${HOSTNAMES_PATH} does not exist yet, will retry on next start" 1>&2
-    exit 0
-fi
+echo "Waiting for ${HOSTNAMES_PATH} to exist..." 1>&2
+while [ ! -d "${HOSTNAMES_PATH}" ]; do
+    if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
+        echo "ERROR: ${HOSTNAMES_PATH} did not appear after ${MAX_WAIT} seconds" 1>&2
+        exit 1
+    fi
+    sleep 1
+    WAIT_COUNT=$((WAIT_COUNT + 1))
+done
 
 echo "Found ${HOSTNAMES_PATH}" 1>&2
 

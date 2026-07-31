@@ -128,6 +128,12 @@ storage:
       overwrite: true
       contents:
         local: grout.container
+    - path: /etc/sysctl.d/99-no-slaac.conf
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          net.ipv6.conf.default.accept_ra = 0
 systemd:
   units:
     # --- Quadlet services ---
@@ -138,7 +144,7 @@ systemd:
       enabled: true
       contents: |
         [Slice]
-        AllowedCPUs=0,1,20,21
+        AllowedCPUs=0,1
         [Install]
         WantedBy=default.target
     - name: setup-underlay.service
