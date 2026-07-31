@@ -64,4 +64,16 @@ else
 	fi
 fi
 
+if grep -q "^HOST_STAGE_WRITING_IMAGE_TO_DISK_TIMEOUT=" "$ENV_FILE"; then
+	echo "HOST_STAGE_WRITING_IMAGE_TO_DISK_TIMEOUT already set. Skipping."
+else
+	echo "Injecting HOST_STAGE_WRITING_IMAGE_TO_DISK_TIMEOUT=120m..."
+	if echo "HOST_STAGE_WRITING_IMAGE_TO_DISK_TIMEOUT=120m" >> "$ENV_FILE"; then
+		echo "SUCCESS: HOST_STAGE_WRITING_IMAGE_TO_DISK_TIMEOUT injection complete."
+	else
+		echo "ERROR: Failed to write HOST_STAGE_WRITING_IMAGE_TO_DISK_TIMEOUT to $ENV_FILE."
+		exit 1
+	fi
+fi
+
 exit 0

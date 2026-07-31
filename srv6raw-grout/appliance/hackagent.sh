@@ -98,6 +98,12 @@ resize_root_for_growfs() {
     sgdisk -p "$DISK" 2>&1 | tee -a "$LOG_FILE"
 }
 
+bail_out() {
+    log "ERROR: $1"
+    systemctl unmask reboot.target
+    exit 1
+}
+
 log "Starting ignition hack script"
 
 # Mask reboot.target immediately so neither the agent nor the OS can reboot
@@ -124,6 +130,7 @@ MASTER_IGN_FILE="/tmp/master-mcs-server.ign"
 log "Waiting for local ignition file and bootstrap MCS ignition..."
 LOCAL_IGN_FILE=""
 MASTER_IGN_READY=0
+SECONDS=0
 while true; do
     if [ -z "$LOCAL_IGN_FILE" ]; then
         LOCAL_IGN_FILE=$(find "$LOCAL_IGN_DIR" -maxdepth 1 \( -name 'master-*.ign' -o -name 'worker-*.ign' \) -type f 2>/dev/null | head -1)
@@ -140,6 +147,9 @@ while true; do
     fi
     [ -n "$LOCAL_IGN_FILE" ] && [ "$MASTER_IGN_READY" -eq 1 ] && break
     sleep 5
+    if [ "$SECONDS" -ge 2700 ]; then  # 45 minutes
+        bail_out "Timed out after ${SECONDS}s waiting for ignition (local=${LOCAL_IGN_FILE:-missing}, mcs=${MASTER_IGN_READY})"
+    fi
 done
 
 # Detect role from filename
@@ -314,9 +324,13 @@ log "Injected registry mirror configuration"
 # their own disk operations are done.
 if sudo podman ps --format '{{.Names}}' 2>/dev/null | grep -q '^service$'; then
     log "Bootstrap node detected — waiting for assisted-installer to exit (implies bootstrap complete)"
+    SECONDS=0
     while sudo podman ps --format '{{.Names}}' 2>/dev/null | grep -q '^assisted-installer$'; do
-        log "assisted-installer still running, retrying in 5 seconds..."
+        log "assisted-installer still running (${SECONDS}s elapsed), retrying in 5 seconds..."
         sleep 5
+        if [ "$SECONDS" -ge 5400 ]; then  # 90 minutes
+            bail_out "Timed out after ${SECONDS}s waiting for assisted-installer to exit"
+        fi
     done
     log "assisted-installer exited, proceeding to write ignition"
 else
@@ -325,8 +339,12 @@ else
     # after all disk operations (image write + ostree deployment) are complete.
     # Exclude ignition-hack lines to prevent matching our own log messages.
     log "Waiting for installer reboot signal..."
+    SECONDS=0
     while ! journalctl -b --no-pager -q 2>/dev/null | grep -v 'ignition-hack' | grep -q 'Rebooting node'; do
         sleep 5
+        if [ "$SECONDS" -ge 3600 ]; then  # 60 minutes
+            bail_out "Timed out after ${SECONDS}s waiting for 'Rebooting node' signal"
+        fi
     done
     log "Rebooting node seen, proceeding to fetch MCS ignition and write"
 fi
