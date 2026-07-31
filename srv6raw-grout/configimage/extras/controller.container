@@ -11,7 +11,7 @@ Documentation=https://github.com/openperouter
 
 [Container]
 # Container image - update this line to change versions
-Image=quay.io/redhat-user-workloads/telco-5g-tenant/openperouter-operator-edge-5-0:pr-398
+Image=quay.io/redhat-user-workloads/telco-5g-tenant/openperouter-operator-edge-5-0:c0690dbaaa74
 
 # Pod association - creates automatic dependency on controllerpod-pod.service
 Pod=controllerpod.pod
